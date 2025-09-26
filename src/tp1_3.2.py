@@ -533,7 +533,7 @@ def copy_data_v2(conn):
 
 
 def main():
-    print("aaaa")
+    print("Iniciando...")
     #espera o postgre
     wait_for_postgres(timeout=120)
     
@@ -580,6 +580,7 @@ def main():
 if __name__ == "__main__":
     main()
     
+
 
 
 
