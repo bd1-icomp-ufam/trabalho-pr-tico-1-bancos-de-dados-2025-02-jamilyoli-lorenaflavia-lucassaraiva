@@ -363,66 +363,72 @@ def copy_data(conn):
             WITH (FORMAT csv, HEADER true, DELIMITER ',');
         """)
         print("-Dados carregados para: products \nem:", round(time.time()-start, 4),"s\n")
-        #copia os dados de category_names
-        start = time.time()
-        cur.execute(f""" 
+    conn.commit()        
+	#copia os dados de category_names
+    start = time.time()
+    cur.execute(f""" 
             COPY categories_names (title, category_id)
             FROM '{copy_path + "/cn_amazon-meta.csv"}' 
             WITH (FORMAT csv, HEADER true, DELIMITER ',');
         """)
-        print("-Dados carregados para: category_names \nem:", round(time.time()-start, 4),"s\n")
+    print("-Dados carregados para: category_names \nem:", round(time.time()-start, 4),"s\n")
         #copia os dados de category_products
-        start = time.time()
-        cur.execute(f""" 
+    conn.commit()        
+    start = time.time()
+    cur.execute(f""" 
             COPY categories_products (asin, leaf_category)
             FROM '{copy_path + "/cp_amazon-meta.csv"}' 
             WITH (FORMAT csv, HEADER true, DELIMITER ',');
         """)
-        print("-Dados carregados para: category_products \nem:", round(time.time()-start, 4),"s\n")
+    print("-Dados carregados para: category_products \nem:", round(time.time()-start, 4),"s\n")
         #copia os dados de category_relations
-        start = time.time()
-        cur.execute(f""" 
+    start = time.time()
+    conn.commit()        
+    cur.execute(f""" 
             COPY categories_relations(parent_id,child_id,"depth")
             FROM '{copy_path + "/cr_amazon-meta.csv"}' 
             WITH (FORMAT csv, HEADER true, DELIMITER ',');
         """)
-        print("-Dados carregados para: category_relations\n em:", round(time.time()-start, 4),"s\n")
+    print("-Dados carregados para: category_relations\n em:", round(time.time()-start, 4),"s\n")
         #copia os dados de review
-        start = time.time()
-        cur.execute(f""" 
+    conn.commit()        
+    start = time.time()
+    cur.execute(f""" 
             COPY review (review_id,product,"data",customer_id,rating,votes,helpfull)
             FROM '{copy_path + "/rv_amazon-meta.csv"}' 
             WITH (FORMAT csv, HEADER true, DELIMITER ',');
         """)
-        print("-Dados carregados para: reviews \nem:", round(time.time()-start, 4),"s\n")
-
+    print("-Dados carregados para: reviews \nem:", round(time.time()-start, 4),"s\n")
+    conn.commit()
         #Para fazer a tabela similars, é necessário remover alguns ASINs de produtos que aparecem apenas em listas de similares, mas não em products
         #criando uma tabela temporária com os dados direto do csv sem restrições, depois colocando na tabela similars usando insert com uma condição para impedir ASINs sem referência em products
-        start = time.time()
-        cur.execute(f""" 
+    start = time.time()
+    cur.execute(f""" 
             CREATE TEMP TABLE tmp_similar_products
             (
                 product_asin VARCHAR(50),
                 similar_asin VARCHAR(50)
             );
         """)
+    conn.commit()
         #copia os dados de similars pra tabela temporária
-        cur.execute(f""" 
+    cur.execute(f""" 
             COPY tmp_similar_products (product_asin, similar_asin)
             FROM '{copy_path + "/sm_amazon-meta.csv"}'
             WITH (FORMAT csv, HEADER true, DELIMITER ',');
         """)
         #coloca de fato em similars apenas aqueles presentes no join de product e tmp_similar_products com condição de igualdade no ASIN de produto
-        #isso efetivamente remove as tuplas com ASINs sem referência
-        cur.execute(f""" 
+	#isso efetivamente remove as tuplas com ASINs sem referência
+    conn.commit()        
+    cur.execute(f""" 
             INSERT INTO similar_products (product_asin, similar_asin)
             SELECT t.product_asin, t.similar_asin
             FROM tmp_similar_products t
             JOIN product p ON p.asin = t.similar_asin;
         """)
-        print("-Dados carregados para: similars \nem:", round(time.time()-start, 4),"s\n")
-        print("tempo total de cópia: ", round(time.time()-start2, 4), "s")
-
+    conn.commit()        
+    print("-Dados carregados para: similars \nem:", round(time.time()-start, 4),"s\n")
+    print("tempo total de cópia: ", round(time.time()-start2, 4), "s")
 def create_views(conn):
     with conn.cursor() as cur:
         start2 = time.time()
@@ -451,9 +457,11 @@ def create_views(conn):
         GROUP BY r.product;
         """)
         print("rating_count criada em:", round(time.time()-start, 4),"s\n")
-        print("Todas as views criadas em:", round(time.time()-start2, 4),"s\n")
+        
+    print("Todas as views criadas em:", round(time.time()-start2, 4),"s\n")
+    conn.commit()
 def main():
-    print("aaaa")
+    print("Iniciando...")
     #espera o postgre
     wait_for_postgres(timeout=120)
     
@@ -463,11 +471,11 @@ def main():
     try:
         create_tables(conn)
 
-        copy_data_batch(conn)
+        copy_data(conn)
         create_views(conn)
     finally:
         conn.close()
-    print("yaaaaay")
+    print("Todas as operações concluídas, Banco de dados gerado")
 
 
 
@@ -533,68 +541,3 @@ if __name__ == "__main__":
 
 
 
-
-
-"""
-def parse_amazon_meta(file_path):
-    products = []
-    product = {}
-
-    with gzip.open(file_path, "rt", encoding="latin-1") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-
-            if line.startswith("Id:"):
-                if product:
-                    products.append(product)
-                product = {
-                    "similar": [],
-                    "categories": [],
-                    "reviews": []
-                    }
-                product["Id"] = int(line.split()[1])
-
-            elif line.startswith("ASIN:"):
-                product["ASIN"] = line.split()[1]
-
-            elif line.startswith("title:"):
-                product["title"] = line[len("title:"):].strip()
-
-            elif line.startswith("group:"):
-                product["group"] = line.split()[1]
-
-            elif line.startswith("salesrank:"):
-                product["salesrank"] = int(line.split()[1])
-
-            elif line.startswith("similar:"):
-                parts = line.split()
-                product["similar"] = parts[2:]
-
-            elif line.startswith("|"):
-                product["categories"].append(line)
-
-            elif line.startswith("reviews:"):
-                match = re.search(r"total: (\d+).*avg rating: ([\d.]+)", line)
-                if match:
-                    product["reviews_summary"] = {
-                        "total": int(match.group(1)),
-                        "avg_rating": float(match.group(2))
-                    }
-
-            elif re.match(r"\d{4}-\d{1,2}-\d{1,2}", line):
-                product["reviews"].append(line)
-
-    if product:
-        products.append(product)
-
-    return pd.DataFrame(products)
-
-
-# --- Carregar o dataset completo ---
-df_full = parse_amazon_meta(file_path)
-
-# --- Salvar em CSV (atenção: arquivo ficará MUITO grande) ---
-df_full.to_csv("/mnt/c/Users/lsara/Downloads/amazon-meta.csv", index=False)
-"""
