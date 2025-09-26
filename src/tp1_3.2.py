@@ -481,7 +481,14 @@ def copy_data_v2(conn):
 
     print("Copiando dados para tabelas...")
     start_all = time.time()
-
+    with conn.cursor() as cur:
+        cur.execute(f""" 
+            CREATE TEMP TABLE tmp_similar_products
+            (
+                product_asin VARCHAR(50),
+                similar_asin VARCHAR(50)
+            );
+        """)
     for table, filename, columns in tables:
         csv_path = f"{csv_folder}/{filename}"
         print(f"\n-> Carregando tabela {table} a partir de {csv_path} ...")
@@ -533,7 +540,7 @@ def copy_data_v2(conn):
 
 
 def main():
-    print("Iniciando...")
+    print("aaaa")
     #espera o postgre
     wait_for_postgres(timeout=120)
     
@@ -602,3 +609,79 @@ if __name__ == "__main__":
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+"""
+def parse_amazon_meta(file_path):
+    products = []
+    product = {}
+
+    with gzip.open(file_path, "rt", encoding="latin-1") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+
+            if line.startswith("Id:"):
+                if product:
+                    products.append(product)
+                product = {
+                    "similar": [],
+                    "categories": [],
+                    "reviews": []
+                    }
+                product["Id"] = int(line.split()[1])
+
+            elif line.startswith("ASIN:"):
+                product["ASIN"] = line.split()[1]
+
+            elif line.startswith("title:"):
+                product["title"] = line[len("title:"):].strip()
+
+            elif line.startswith("group:"):
+                product["group"] = line.split()[1]
+
+            elif line.startswith("salesrank:"):
+                product["salesrank"] = int(line.split()[1])
+
+            elif line.startswith("similar:"):
+                parts = line.split()
+                product["similar"] = parts[2:]
+
+            elif line.startswith("|"):
+                product["categories"].append(line)
+
+            elif line.startswith("reviews:"):
+                match = re.search(r"total: (\d+).*avg rating: ([\d.]+)", line)
+                if match:
+                    product["reviews_summary"] = {
+                        "total": int(match.group(1)),
+                        "avg_rating": float(match.group(2))
+                    }
+
+            elif re.match(r"\d{4}-\d{1,2}-\d{1,2}", line):
+                product["reviews"].append(line)
+
+    if product:
+        products.append(product)
+
+    return pd.DataFrame(products)
+
+
+# --- Carregar o dataset completo ---
+df_full = parse_amazon_meta(file_path)
+
+# --- Salvar em CSV (atenção: arquivo ficará MUITO grande) ---
+df_full.to_csv("/mnt/c/Users/lsara/Downloads/amazon-meta.csv", index=False)
+"""
