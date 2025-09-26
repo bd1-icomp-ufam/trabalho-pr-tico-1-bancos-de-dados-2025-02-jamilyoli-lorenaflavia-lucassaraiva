@@ -324,9 +324,9 @@ def copy_data_batch(conn):
     csv_folder = "/app/out"   # ajuste se seu script grava em outro lugar
     tables = [
         ("products", "products.csv"),
-        ("category_names", "category_names.csv"),
-        ("category_products", "category_products.csv"),
-        ("category_relations", "category_relations.csv"),
+        ("categories_names", "category_names.csv"),
+        ("categories_products", "category_products.csv"),
+        ("categories_relations", "category_relations.csv"),
         ("similar_products", "similar_products.csv"),
         ("reviews", "reviews.csv"),
     ]
