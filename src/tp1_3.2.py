@@ -460,8 +460,80 @@ def create_views(conn):
         
     print("Todas as views criadas em:", round(time.time()-start2, 4),"s\n")
     conn.commit()
+
+import time
+from psycopg2 import sql
+
+def copy_data_v2(conn):
+    """
+    Carrega CSVs gerados para o banco, tabela-por-tabela, com commit após cada COPY.
+    Usa COPY ... FROM STDIN via cursor.copy_expert (streaming do cliente).
+    """
+    csv_folder = file_path_out  
+    tables = [
+        ("product", "pr_amazon-meta.csv", "id,asin,title,\"group\",sales_rank,review_number"),
+        ("categories_names", "cn_amazon-meta.csv", "title,category_id"),
+        ("categories_products", "cp_amazon-meta.csv", "asin,leaf_category"),
+        ("categories_relations", "cr_amazon-meta.csv", "parent_id,child_id,depth"),
+        ("review", "rv_amazon-meta.csv", "review_id,product,\"data\",customer_id,rating,votes,helpfull"),
+        ("tmp_similar_products", "sm_amazon-meta.csv", "product_asin,similar_asin"),  # temporária
+    ]
+
+    print("Copiando dados para tabelas...")
+    start_all = time.time()
+
+    for table, filename, columns in tables:
+        csv_path = f"{csv_folder}/{filename}"
+        print(f"\n-> Carregando tabela {table} a partir de {csv_path} ...")
+        start = time.time()
+        try:
+            with conn.cursor() as cur:
+                # monta o comando COPY para STDIN (client-side streaming)
+                copy_sql = sql.SQL("COPY {} ({}) FROM STDIN WITH CSV HEADER DELIMITER ','").format(
+                    sql.Identifier(table),
+                    sql.SQL(columns)
+                )
+                # abre o arquivo no cliente (app container) e stream para o server
+                with open(csv_path, "r", encoding="utf-8", errors="replace") as f:
+                    cur.copy_expert(copy_sql.as_string(conn), f)
+                # commit logo após o COPY
+                conn.commit()
+            elapsed = time.time() - start
+            print(f"-Dados carregados para: {table}\nem: {elapsed:.4f} s")
+        except Exception as e:
+            # No erro, rollback e re-lançar (ou tratar conforme necessário)
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            print(f"ERRO ao carregar {table}: {e}")
+            raise
+
+    
+    try:
+        start = time.time()
+        with conn.cursor() as cur:
+            # Insere apenas os similares que têm referência em product
+            cur.execute("""
+                INSERT INTO similar_products (product_asin, similar_asin)
+                SELECT t.product_asin, t.similar_asin
+                FROM tmp_similar_products t
+                JOIN product p ON p.asin = t.similar_asin;
+            """)
+            conn.commit()
+        print(f"\n-Dados carregados para: similars \nem: {round(time.time() - start, 4)} s")
+    except Exception as e:
+        conn.rollback()
+        print(f"ERRO ao inserir similars: {e}")
+        raise
+
+    print("\nTempo total de cópia: ", round(time.time() - start_all, 4), "s")
+
+
+
+
 def main():
-    print("Iniciando...")
+    print("aaaa")
     #espera o postgre
     wait_for_postgres(timeout=120)
     
@@ -471,7 +543,7 @@ def main():
     try:
         create_tables(conn)
 
-        copy_data(conn)
+        copy_data_v2(conn)
         create_views(conn)
     finally:
         conn.close()
@@ -541,3 +613,68 @@ if __name__ == "__main__":
 
 
 
+
+
+"""
+def parse_amazon_meta(file_path):
+    products = []
+    product = {}
+
+    with gzip.open(file_path, "rt", encoding="latin-1") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+
+            if line.startswith("Id:"):
+                if product:
+                    products.append(product)
+                product = {
+                    "similar": [],
+                    "categories": [],
+                    "reviews": []
+                    }
+                product["Id"] = int(line.split()[1])
+
+            elif line.startswith("ASIN:"):
+                product["ASIN"] = line.split()[1]
+
+            elif line.startswith("title:"):
+                product["title"] = line[len("title:"):].strip()
+
+            elif line.startswith("group:"):
+                product["group"] = line.split()[1]
+
+            elif line.startswith("salesrank:"):
+                product["salesrank"] = int(line.split()[1])
+
+            elif line.startswith("similar:"):
+                parts = line.split()
+                product["similar"] = parts[2:]
+
+            elif line.startswith("|"):
+                product["categories"].append(line)
+
+            elif line.startswith("reviews:"):
+                match = re.search(r"total: (\d+).*avg rating: ([\d.]+)", line)
+                if match:
+                    product["reviews_summary"] = {
+                        "total": int(match.group(1)),
+                        "avg_rating": float(match.group(2))
+                    }
+
+            elif re.match(r"\d{4}-\d{1,2}-\d{1,2}", line):
+                product["reviews"].append(line)
+
+    if product:
+        products.append(product)
+
+    return pd.DataFrame(products)
+
+
+# --- Carregar o dataset completo ---
+df_full = parse_amazon_meta(file_path)
+
+# --- Salvar em CSV (atenção: arquivo ficará MUITO grande) ---
+df_full.to_csv("/mnt/c/Users/lsara/Downloads/amazon-meta.csv", index=False)
+"""
